@@ -18,6 +18,12 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+var RunID xid.ID
+
+func init() {
+	RunID = xid.New()
+}
+
 var CLI = &cli.App{
 	Commands: []*cli.Command{
 		{
@@ -65,9 +71,7 @@ var CLI = &cli.App{
 				},
 			},
 			Action: func(cCtx *cli.Context) error {
-				theID := xid.New()
-
-				slog.SetDefault(slog.Default().With("id", theID.String()))
+				slog.SetDefault(slog.Default().With("id", RunID.String()))
 
 				if cCtx.Bool("verbose") {
 					slog.SetLogLoggerLevel(slog.LevelDebug)
@@ -83,7 +87,7 @@ var CLI = &cli.App{
 
 				// Initiate bus
 				slog.Debug("initiating eventbus")
-				bus, err := eb.NewBus(cfg, theID, cCtx.String("bus"))
+				bus, err := eb.NewBus(cfg, RunID, cCtx.String("bus"))
 				if err != nil {
 					return err
 				}
@@ -91,7 +95,7 @@ var CLI = &cli.App{
 
 				// Initiate listener
 				slog.Debug("initiating sqs")
-				s, err := listen.NewSQS(cfg, theID)
+				s, err := listen.NewSQS(cfg, RunID)
 				if err != nil {
 					return fmt.Errorf("failed to start listener %w", err)
 				}

@@ -7,10 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/rs/xid"
@@ -20,25 +18,10 @@ const (
 	SQSQueuePrefix = "eb-listener"
 )
 
-type Listener interface{}
-
-type Event struct {
-	Version    string          `json:"version"`
-	ID         string          `json:"id"`
-	DetailType string          `json:"detail-type"`
-	Source     string          `json:"source"`
-	Account    string          `json:"account"`
-	Time       time.Time       `json:"time"`
-	Region     string          `json:"region"`
-	Resources  []interface{}   `json:"resources"`
-	Detail     json.RawMessage `json:"detail"`
-}
-
 type SQS struct {
 	runID      xid.ID
 	config     aws.Config
 	client     *sqs.Client
-	ebClient   *eventbridge.Client
 	msgChan    chan Event
 	queueName  string
 	QueueURL   string
@@ -164,7 +147,6 @@ func NewSQS(cfg aws.Config, id xid.ID) (*SQS, error) {
 		log:        slog.Default(),
 	}
 	s.client = sqs.NewFromConfig(cfg)
-	s.ebClient = eventbridge.NewFromConfig(cfg)
 
 	resp, err := s.client.CreateQueue(context.TODO(), &sqs.CreateQueueInput{
 		QueueName:  &s.queueName,
@@ -175,7 +157,6 @@ func NewSQS(cfg aws.Config, id xid.ID) (*SQS, error) {
 		},
 	})
 	if err != nil {
-		s.cleanup(context.TODO())
 		return nil, fmt.Errorf("failed to create sqs queue %w", err)
 	}
 
@@ -188,7 +169,10 @@ func NewSQS(cfg aws.Config, id xid.ID) (*SQS, error) {
 		},
 	})
 	if err != nil {
-		s.cleanup(context.TODO())
+		errClean := s.cleanup(context.TODO())
+		if errClean != nil {
+			s.log.Error("failed to clean up SQS queue", "error", errClean)
+		}
 		return nil, fmt.Errorf("failed to get queue arn %w", err)
 	}
 
@@ -198,51 +182,18 @@ func NewSQS(cfg aws.Config, id xid.ID) (*SQS, error) {
 
 	s.log.Info("created SQS queue", "arn", s.QueueARN)
 
-	type statement struct {
-		Sid       string
-		Effect    string
-		Principal map[string]string
-		Action    string
-		Resource  string
-	}
-
-	type policy struct {
-		Version   string
-		Id        string
-		Statement []statement
-	}
-
-	sqsPolicy := policy{
-		Version: "2012-10-17",
-		Id:      fmt.Sprintf("eb-listener-%s", s.runID),
-		Statement: []statement{
-			{
-				Sid:    fmt.Sprintf("eb-listener-%s", s.runID),
-				Effect: "Allow",
-				Principal: map[string]string{
-					"Service": "events.amazonaws.com",
-				},
-				Action:   "sqs:SendMessage",
-				Resource: s.QueueARN,
-			},
-		},
-	}
-
-	sqsPolicyJSON, err := json.Marshal(sqsPolicy)
-	if err != nil {
-		return nil, err
-	}
-
 	slog.Debug("attaching policy to sqs queue")
-
 	_, err = s.client.SetQueueAttributes(context.TODO(), &sqs.SetQueueAttributesInput{
 		QueueUrl: &s.QueueURL,
 		Attributes: map[string]string{
-			"Policy": string(sqsPolicyJSON),
+			"Policy": NewIamSqsPolicy(fmt.Sprintf("%s-%s", SQSQueuePrefix, s.runID), s.QueueARN),
 		},
 	})
 	if err != nil {
-		s.cleanup(context.TODO())
+		errClean := s.cleanup(context.TODO())
+		if errClean != nil {
+			s.log.Error("failed to clean up SQS queue", "error", errClean)
+		}
 		return nil, fmt.Errorf("failed to attach policy to queue %w", err)
 	}
 
