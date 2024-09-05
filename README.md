@@ -1,4 +1,4 @@
-# Eventbridge Listener (eb-listener)
+# AWS EventBridge Listener (eb-listener)
 
 Listens for messages on a AWS EventBridge bus and outputs them to the terminal.
 
