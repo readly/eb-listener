@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.33.7
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.34.8
 	github.com/fatih/color v1.17.0
-	github.com/lmittmann/tint v1.0.5
+	github.com/lmittmann/tint v1.0.7
 	github.com/rodaine/table v1.3.0
 	github.com/rs/xid v1.6.0
 	github.com/urfave/cli/v2 v2.27.4
