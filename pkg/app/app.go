@@ -65,6 +65,11 @@ var CLI = &cli.App{
 					Required: true,
 				},
 				&cli.BoolFlag{
+					Name:  "fifo",
+					Usage: "Create a FIFO SQS queue",
+					Value: false,
+				},
+				&cli.BoolFlag{
 					Name:  "verbose",
 					Usage: "Get more verbose output",
 					Value: false,
@@ -95,7 +100,7 @@ var CLI = &cli.App{
 
 				// Initiate listener
 				slog.Debug("initiating sqs")
-				s, err := listen.NewSQS(cfg, RunID)
+				s, err := listen.NewSQS(cfg, RunID, cCtx.Bool("fifo"))
 				if err != nil {
 					return fmt.Errorf("failed to start listener %w", err)
 				}

@@ -12,6 +12,10 @@ Use a different AWS credential profile.
 
 `$ AWS_PROFILE=secret eb-listener listen --bus pinkbus`
 
+Create a FIFO queue for listening.
+
+`$ AWS_PROFILE=secret eb-listener listen --bus pinkbus --fifo`
+
 ## AWS Access
 
 Your AWS credentials will need to have access to create, update and delete SQS
@@ -20,8 +24,9 @@ rules and targets.
 
 ## How it works
 
-`eb-listener` creates a SQS queue. Then it adds a rule to catch all events on a
-EventBridge bus and attaches a target to the SQS queue.
+`eb-listener` creates a SQS queue (or a FIFO queue with `--fifo`). Then it adds
+a rule to catch all events on a EventBridge bus and attaches a target to the
+SQS queue.
 
 `eb-listener` then starts to poll the SQS queue for new messages.
 

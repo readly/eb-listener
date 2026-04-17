@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	ebRulePrefix   = "eb-listener-rule"
-	ebTargetPrefix = "eb-listener-target"
+	ebRulePrefix      = "eb-listener-rule"
+	ebTargetPrefix    = "eb-listener-target"
+	sqsMessageGroupID = "eb-listener"
 )
 
 type Bus struct {
@@ -58,16 +59,21 @@ func (b *Bus) createRule(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bus) createTarget(ctx context.Context, queueARN string) error {
+func (b *Bus) createTarget(ctx context.Context, s *listen.SQS) error {
 	targetName := fmt.Sprintf("%s-%s", ebTargetPrefix, b.runID.String())
+	target := types.Target{
+		Id:  &targetName,
+		Arn: &s.QueueARN,
+	}
+	if s.IsFIFO() {
+		target.SqsParameters = &types.SqsParameters{
+			MessageGroupId: aws.String(sqsMessageGroupID),
+		}
+	}
+
 	_, err := b.client.PutTargets(ctx, &eventbridge.PutTargetsInput{
-		Rule: &b.ruleName,
-		Targets: []types.Target{
-			{
-				Id:  &targetName,
-				Arn: &queueARN,
-			},
-		},
+		Rule:         &b.ruleName,
+		Targets:      []types.Target{target},
 		EventBusName: &b.name,
 	})
 	if err != nil {
@@ -118,7 +124,7 @@ func (b *Bus) AttachSQS(ctx context.Context, s *listen.SQS) error {
 		return err
 	}
 
-	err = b.createTarget(ctx, s.QueueARN)
+	err = b.createTarget(ctx, s)
 	if err != nil {
 		return err
 	}
