@@ -76,7 +76,7 @@ var CLI = &cli.App{
 				},
 			},
 			Action: func(cCtx *cli.Context) error {
-				slog.SetDefault(slog.Default().With("id", RunID.String()))
+				slog.SetDefault(slog.Default().With("run-id", RunID.String()))
 
 				if cCtx.Bool("verbose") {
 					slog.SetLogLoggerLevel(slog.LevelDebug)
