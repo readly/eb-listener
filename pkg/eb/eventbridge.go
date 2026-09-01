@@ -26,6 +26,7 @@ type Bus struct {
 	runID        xid.ID
 	name         string
 	ruleName     string
+	ruleARN      string
 	targetARN    string
 	eventPattern string
 	log          *slog.Logger
@@ -33,7 +34,7 @@ type Bus struct {
 
 func (b *Bus) createRule(ctx context.Context) error {
 	ruleName := fmt.Sprintf("%s-%s", ebRulePrefix, b.runID.String())
-	_, err := b.client.PutRule(ctx, &eventbridge.PutRuleInput{
+	output, err := b.client.PutRule(ctx, &eventbridge.PutRuleInput{
 		Name:         &ruleName,
 		Description:  aws.String("A temporary rule created by eb-listener"),
 		EventBusName: &b.name,
@@ -55,11 +56,17 @@ func (b *Bus) createRule(ctx context.Context) error {
 	}
 
 	b.ruleName = ruleName
+	b.ruleARN = *output.RuleArn
 	b.log.Debug("created eventbridge rule", "rule", ruleName)
 	return nil
 }
 
 func (b *Bus) createTarget(ctx context.Context, s *listen.SQS) error {
+	if err := s.AllowMessagesFrom(ctx, "events.amazonaws.com", b.ruleARN); err != nil {
+		b.Cleanup(context.TODO())
+		return err
+	}
+
 	targetName := fmt.Sprintf("%s-%s", ebTargetPrefix, b.runID.String())
 	target := types.Target{
 		Id:  &targetName,

@@ -10,6 +10,7 @@ type IamStatement struct {
 	Principal map[string]string
 	Action    string
 	Resource  string
+	Condition map[string]map[string]string
 }
 
 type IamPolicy struct {
@@ -18,7 +19,7 @@ type IamPolicy struct {
 	Statement []IamStatement
 }
 
-func NewIamSqsPolicy(id string, queueArn string) string {
+func NewIamSqsPolicy(id string, queueARN string, principal string, sourceARN string) string {
 	policy := IamPolicy{
 		Version: "2012-10-17",
 		Id:      id,
@@ -27,10 +28,15 @@ func NewIamSqsPolicy(id string, queueArn string) string {
 				Sid:    id,
 				Effect: "Allow",
 				Principal: map[string]string{
-					"Service": "events.amazonaws.com",
+					"Service": principal,
 				},
 				Action:   "sqs:SendMessage",
-				Resource: queueArn,
+				Resource: queueARN,
+				Condition: map[string]map[string]string{
+					"ArnEquals": {
+						"aws:SourceArn": sourceARN,
+					},
+				},
 			},
 		},
 	}

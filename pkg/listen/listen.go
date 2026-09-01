@@ -29,10 +29,7 @@ type SQS struct {
 	queueName  string
 	QueueURL   string
 	QueueARN   string
-	ctx        context.Context
 	ctxCancel  context.CancelFunc
-	printClose chan struct{}
-	pollClose  chan struct{}
 	wg         *sync.WaitGroup
 	log        *slog.Logger
 	onlyDetail bool
@@ -63,20 +60,15 @@ func (s *SQS) cleanup(ctx context.Context) error {
 }
 
 func (s *SQS) Listen(ctx context.Context) {
-	nCtx, cancel := context.WithCancel(ctx)
-	s.ctx = nCtx
-	s.ctxCancel = cancel
+	ctx, s.ctxCancel = context.WithCancel(ctx)
 	s.log.Info("start listening for messages on SQS queue")
-	go s.pollMessages(s.ctx)
-	go s.printMessages()
+	s.wg.Add(2)
+	go s.pollMessages(ctx)
+	go s.printMessages(ctx)
 }
 
 func (s *SQS) Shutdown(ctx context.Context) error {
-	s.pollClose <- struct{}{}
-	close(s.pollClose)
-	s.printClose <- struct{}{}
-	close(s.printClose)
-
+	s.ctxCancel()
 	s.wg.Wait()
 
 	err := s.cleanup(ctx)
@@ -86,8 +78,7 @@ func (s *SQS) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *SQS) printMessages() {
-	s.wg.Add(1)
+func (s *SQS) printMessages(ctx context.Context) {
 	defer s.wg.Done()
 	for {
 		select {
@@ -99,7 +90,7 @@ func (s *SQS) printMessages() {
 			if err := s.printMessage(os.Stdout, msg); err != nil {
 				s.log.Error("failed to print event", "error", err)
 			}
-		case <-s.printClose:
+		case <-ctx.Done():
 			s.log.Debug("stopping message printing for sqs queue")
 			return
 		}
@@ -134,7 +125,8 @@ func (s *SQS) printMessage(w io.Writer, msg receivedEvent) error {
 func printPrettyJSON(w io.Writer, payload json.RawMessage) error {
 	var out bytes.Buffer
 	if err := json.Indent(&out, payload, "", "  "); err != nil {
-		return fmt.Errorf("failed to format json: %w", err)
+		out.Reset()
+		out.Write(payload)
 	}
 
 	if _, err := fmt.Fprintln(w, out.String()); err != nil {
@@ -145,50 +137,60 @@ func printPrettyJSON(w io.Writer, payload json.RawMessage) error {
 }
 
 func (s *SQS) pollMessages(ctx context.Context) {
-	s.wg.Add(1)
 	defer s.wg.Done()
 	for {
-		select {
-		case <-s.pollClose:
-			s.log.Debug("stopping message polling on sqs queue")
-			return
-		default:
-			result, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-				QueueUrl:            aws.String(s.QueueURL),
-				MaxNumberOfMessages: 10,
-				WaitTimeSeconds:     1,
-			})
-			deleteInput := sqs.DeleteMessageBatchInput{
-				QueueUrl: &s.QueueURL,
-				Entries:  make([]types.DeleteMessageBatchRequestEntry, 0),
+		result, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            aws.String(s.QueueURL),
+			MaxNumberOfMessages: 10,
+			WaitTimeSeconds:     1,
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				s.log.Debug("stopping message polling on sqs queue")
+				return
 			}
-			if err != nil {
-				s.log.Error("failed to receive messages", "error", err)
-			} else {
-				for i := range result.Messages {
-					var msg Event
-					raw := json.RawMessage(*result.Messages[i].Body)
-					err := json.Unmarshal(raw, &msg)
-					if err != nil {
-						s.log.Error("failed to unmarshal event", "error", err)
-					} else {
-						s.msgChan <- receivedEvent{event: msg, raw: raw}
-					}
-					deleteInput.Entries = append(deleteInput.Entries, types.DeleteMessageBatchRequestEntry{
-						Id:            result.Messages[i].MessageId,
-						ReceiptHandle: result.Messages[i].ReceiptHandle,
-					})
-				}
-			}
+			s.log.Error("failed to receive messages", "error", err)
+			continue
+		}
 
-			if len(deleteInput.Entries) > 0 {
-				_, err = s.client.DeleteMessageBatch(ctx, &deleteInput)
-				if err != nil {
-					s.log.Error("failed to delete messages", "error", err)
-				}
+		deleteInput := sqs.DeleteMessageBatchInput{
+			QueueUrl: &s.QueueURL,
+			Entries:  make([]types.DeleteMessageBatchRequestEntry, 0, len(result.Messages)),
+		}
+		for i := range result.Messages {
+			var event Event
+			raw := json.RawMessage(*result.Messages[i].Body)
+			_ = json.Unmarshal(raw, &event)
+			select {
+			case s.msgChan <- receivedEvent{event: event, raw: raw}:
+			case <-ctx.Done():
+				return
+			}
+			deleteInput.Entries = append(deleteInput.Entries, types.DeleteMessageBatchRequestEntry{
+				Id:            result.Messages[i].MessageId,
+				ReceiptHandle: result.Messages[i].ReceiptHandle,
+			})
+		}
+
+		if len(deleteInput.Entries) > 0 {
+			if _, err = s.client.DeleteMessageBatch(ctx, &deleteInput); err != nil {
+				s.log.Error("failed to delete messages", "error", err)
 			}
 		}
 	}
+}
+
+func (s *SQS) AllowMessagesFrom(ctx context.Context, principal string, sourceARN string) error {
+	_, err := s.client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
+		QueueUrl: &s.QueueURL,
+		Attributes: map[string]string{
+			"Policy": NewIamSqsPolicy(fmt.Sprintf("%s-%s", SQSQueuePrefix, s.runID), s.QueueARN, principal, sourceARN),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to attach policy to queue %w", err)
+	}
+	return nil
 }
 
 func NewSQS(cfg aws.Config, id xid.ID, fifo bool, onlyDetail bool, verbose bool) (*SQS, error) {
@@ -205,8 +207,6 @@ func NewSQS(cfg aws.Config, id xid.ID, fifo bool, onlyDetail bool, verbose bool)
 		queueName:  queueName,
 		isFIFO:     fifo,
 		msgChan:    make(chan receivedEvent),
-		pollClose:  make(chan struct{}),
-		printClose: make(chan struct{}),
 		wg:         new(sync.WaitGroup),
 		runID:      id,
 		log:        slog.Default(),
@@ -248,21 +248,6 @@ func NewSQS(cfg aws.Config, id xid.ID, fifo bool, onlyDetail bool, verbose bool)
 	s.log = slog.Default().With("url", s.QueueURL)
 
 	s.log.Info("created SQS queue", "arn", s.QueueARN)
-
-	slog.Debug("attaching policy to sqs queue")
-	_, err = s.client.SetQueueAttributes(context.TODO(), &sqs.SetQueueAttributesInput{
-		QueueUrl: &s.QueueURL,
-		Attributes: map[string]string{
-			"Policy": NewIamSqsPolicy(fmt.Sprintf("%s-%s", SQSQueuePrefix, s.runID), s.QueueARN),
-		},
-	})
-	if err != nil {
-		errClean := s.cleanup(context.TODO())
-		if errClean != nil {
-			s.log.Error("failed to clean up SQS queue", "error", errClean)
-		}
-		return nil, fmt.Errorf("failed to attach policy to queue %w", err)
-	}
 
 	return s, nil
 }

@@ -54,6 +54,34 @@ func TestPrintMessagePrettyPrintsFullEventWhenVerbose(t *testing.T) {
 	}
 }
 
+func TestPrintMessagePrintsRawTextWhenVerbose(t *testing.T) {
+	var logOut bytes.Buffer
+	s := newOutputTestSQS(&logOut, false, true)
+
+	var out bytes.Buffer
+	if err := s.printMessage(&out, receivedEvent{raw: json.RawMessage("hello from SNS")}); err != nil {
+		t.Fatalf("printMessage() error = %v", err)
+	}
+
+	if got, want := out.String(), "hello from SNS\n"; got != want {
+		t.Fatalf("printMessage() stdout = %q, want %q", got, want)
+	}
+}
+
+func TestPrintMessagePrintsMalformedJSONUnchanged(t *testing.T) {
+	var logOut bytes.Buffer
+	s := newOutputTestSQS(&logOut, false, true)
+
+	var out bytes.Buffer
+	if err := s.printMessage(&out, receivedEvent{raw: json.RawMessage(`{"message":`)}); err != nil {
+		t.Fatalf("printMessage() error = %v", err)
+	}
+
+	if got, want := out.String(), "{\"message\":\n"; got != want {
+		t.Fatalf("printMessage() stdout = %q, want %q", got, want)
+	}
+}
+
 func TestPrintMessageAddsDividerBetweenVerboseMessages(t *testing.T) {
 	msg := newReceivedEvent(t)
 	var logOut bytes.Buffer
