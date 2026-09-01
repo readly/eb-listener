@@ -12,6 +12,21 @@ Use a different AWS credential profile.
 
 `$ AWS_PROFILE=secret eb-listener listen --bus pinkbus`
 
+By default, received messages are output as log rows containing the full
+EventBridge event.
+
+Pretty-print the full EventBridge event JSON.
+
+`$ AWS_PROFILE=secret eb-listener listen --bus pinkbus --verbose`
+
+Only output the EventBridge event detail field as a log row.
+
+`$ AWS_PROFILE=secret eb-listener listen --bus pinkbus --only-detail`
+
+Pretty-print only the EventBridge event detail JSON.
+
+`$ AWS_PROFILE=secret eb-listener listen --bus pinkbus --only-detail --verbose`
+
 Create a FIFO queue for listening.
 
 `$ AWS_PROFILE=secret eb-listener listen --bus pinkbus --fifo`

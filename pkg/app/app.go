@@ -70,8 +70,13 @@ var CLI = &cli.App{
 					Value: false,
 				},
 				&cli.BoolFlag{
+					Name:  "only-detail",
+					Usage: "Only output the EventBridge event detail field",
+					Value: false,
+				},
+				&cli.BoolFlag{
 					Name:  "verbose",
-					Usage: "Get more verbose output",
+					Usage: "Pretty-print events and enable debug logs",
 					Value: false,
 				},
 			},
@@ -100,7 +105,7 @@ var CLI = &cli.App{
 
 				// Initiate listener
 				slog.Debug("initiating sqs")
-				s, err := listen.NewSQS(cfg, RunID, cCtx.Bool("fifo"))
+				s, err := listen.NewSQS(cfg, RunID, cCtx.Bool("fifo"), cCtx.Bool("only-detail"), cCtx.Bool("verbose"))
 				if err != nil {
 					return fmt.Errorf("failed to start listener %w", err)
 				}

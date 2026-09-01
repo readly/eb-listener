@@ -1,9 +1,11 @@
 package listen
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -23,7 +25,7 @@ type SQS struct {
 	config     aws.Config
 	client     *sqs.Client
 	isFIFO     bool
-	msgChan    chan Event
+	msgChan    chan receivedEvent
 	queueName  string
 	QueueURL   string
 	QueueARN   string
@@ -33,6 +35,14 @@ type SQS struct {
 	pollClose  chan struct{}
 	wg         *sync.WaitGroup
 	log        *slog.Logger
+	onlyDetail bool
+	verbose    bool
+	printed    bool
+}
+
+type receivedEvent struct {
+	event Event
+	raw   json.RawMessage
 }
 
 func (s *SQS) IsFIFO() bool {
@@ -86,12 +96,52 @@ func (s *SQS) printMessages() {
 				s.log.Debug("msg channel closed")
 				return
 			}
-			s.log.Info("received event", "id", msg.ID, "detail-type", msg.DetailType, "detail", string(msg.Detail))
+			if err := s.printMessage(os.Stdout, msg); err != nil {
+				s.log.Error("failed to print event", "error", err)
+			}
 		case <-s.printClose:
 			s.log.Debug("stopping message printing for sqs queue")
 			return
 		}
 	}
+}
+
+func (s *SQS) printMessage(w io.Writer, msg receivedEvent) error {
+	if s.verbose {
+		if s.printed {
+			if _, err := fmt.Fprintln(w, "---"); err != nil {
+				return fmt.Errorf("failed to write message divider: %w", err)
+			}
+		}
+		s.printed = true
+
+		payload := msg.raw
+		if s.onlyDetail {
+			payload = msg.event.Detail
+		}
+		return printPrettyJSON(w, payload)
+	}
+
+	if s.onlyDetail {
+		s.log.Info("received event", "id", msg.event.ID, "detail-type", msg.event.DetailType, "detail", string(msg.event.Detail))
+		return nil
+	}
+
+	s.log.Info("received event", "event", string(msg.raw))
+	return nil
+}
+
+func printPrettyJSON(w io.Writer, payload json.RawMessage) error {
+	var out bytes.Buffer
+	if err := json.Indent(&out, payload, "", "  "); err != nil {
+		return fmt.Errorf("failed to format json: %w", err)
+	}
+
+	if _, err := fmt.Fprintln(w, out.String()); err != nil {
+		return fmt.Errorf("failed to write json: %w", err)
+	}
+
+	return nil
 }
 
 func (s *SQS) pollMessages(ctx context.Context) {
@@ -117,11 +167,12 @@ func (s *SQS) pollMessages(ctx context.Context) {
 			} else {
 				for i := range result.Messages {
 					var msg Event
-					err := json.Unmarshal([]byte(*result.Messages[i].Body), &msg)
+					raw := json.RawMessage(*result.Messages[i].Body)
+					err := json.Unmarshal(raw, &msg)
 					if err != nil {
 						s.log.Error("failed to unmarshal event", "error", err)
 					} else {
-						s.msgChan <- msg
+						s.msgChan <- receivedEvent{event: msg, raw: raw}
 					}
 					deleteInput.Entries = append(deleteInput.Entries, types.DeleteMessageBatchRequestEntry{
 						Id:            result.Messages[i].MessageId,
@@ -140,7 +191,7 @@ func (s *SQS) pollMessages(ctx context.Context) {
 	}
 }
 
-func NewSQS(cfg aws.Config, id xid.ID, fifo bool) (*SQS, error) {
+func NewSQS(cfg aws.Config, id xid.ID, fifo bool, onlyDetail bool, verbose bool) (*SQS, error) {
 	queueName := fmt.Sprintf("%s-%s", SQSQueuePrefix, id.String())
 	attributes := map[string]string{}
 	if fifo {
@@ -153,12 +204,14 @@ func NewSQS(cfg aws.Config, id xid.ID, fifo bool) (*SQS, error) {
 		config:     cfg,
 		queueName:  queueName,
 		isFIFO:     fifo,
-		msgChan:    make(chan Event),
+		msgChan:    make(chan receivedEvent),
 		pollClose:  make(chan struct{}),
 		printClose: make(chan struct{}),
 		wg:         new(sync.WaitGroup),
 		runID:      id,
 		log:        slog.Default(),
+		onlyDetail: onlyDetail,
+		verbose:    verbose,
 	}
 	s.client = sqs.NewFromConfig(cfg)
 
