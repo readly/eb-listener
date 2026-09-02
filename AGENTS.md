@@ -5,13 +5,14 @@ Keep changes focused, minimal, and consistent with existing code.
 
 ## 1) Project Context
 - Language: Go (`go 1.22.6`)
-- Type: CLI for listening to AWS EventBridge events
+- Type: CLI for listening to AWS EventBridge events and SNS messages
 - Module path: `github.com/readly/eb-listener`
 - Entrypoint: `cmd/eb-listener/main.go`
 - Core packages:
   - `pkg/app` for CLI command setup
   - `pkg/eb` for EventBridge rule/target lifecycle
   - `pkg/listen` for SQS queue lifecycle and message polling
+  - `pkg/sns` for SNS topic resolution and subscription lifecycle
 
 ## 2) Extra Rule Files Check
 Repository was checked for agent instruction overlays:
@@ -31,6 +32,7 @@ If these files appear later, treat them as top-priority repository rules.
 - Build binary: `go build ./cmd/eb-listener`
 - List buses: `AWS_REGION=us-west-1 go run ./cmd/eb-listener list`
 - Listen on bus: `AWS_PROFILE=secret go run ./cmd/eb-listener listen --bus pinkbus`
+- Listen on SNS topic: `AWS_PROFILE=secret go run ./cmd/eb-listener listen --topic orders`
 - Release snapshot build: `goreleaser build --snapshot --clean`
 
 ## 5) Lint / Format / Static Analysis
@@ -42,12 +44,12 @@ If these files appear later, treat them as top-priority repository rules.
 ## 6) Test Commands (Including Single Test)
 - Run all tests: `go test ./...`
 - Run one package: `go test ./pkg/listen`
+- Run SNS package: `go test ./pkg/sns`
 - Run one test: `go test ./pkg/listen -run '^TestName$' -v`
 - Run one subtest: `go test ./pkg/listen -run '^TestName$/Subcase$' -v`
 - Run single test with race detector: `go test -race ./pkg/listen -run '^TestName$'`
 - Coverage check: `go test ./... -cover`
 
-Current state note: repository currently has no `*_test.go` files.
 When adding/changing behavior, add tests where practical.
 
 ## 7) Coding Style Guidelines
@@ -104,7 +106,7 @@ When adding/changing behavior, add tests where practical.
 
 ### AWS and Side-Effect Safety
 - Keep generated names deterministic using run IDs
-- Preserve cleanup of temporary EventBridge rule/target and SQS queue
+- Preserve cleanup order: remove the temporary EventBridge rule/target or SNS subscription before deleting the SQS queue
 - Keep IAM scope as narrow as practical
 - Do not broaden permissions without clear necessity
 
@@ -135,7 +137,7 @@ When implementing features/fixes:
 - Prefer `go run ./cmd/eb-listener` for execution-oriented checks to avoid extra artifacts
 
 ## 11) Operational and Safety Notes
-- This tool creates temporary AWS resources; always preserve cleanup paths.
+- This tool creates temporary AWS resources; always preserve EventBridge target/rule, SNS subscription, and SQS queue cleanup paths.
 - Avoid broadening AWS permissions without explicit need.
 - Do not introduce destructive defaults in CLI behavior.
 - Handle signal-driven shutdown paths carefully (`os.Interrupt`, `SIGTERM`, `SIGHUP`).
