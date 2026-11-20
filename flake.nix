@@ -15,16 +15,16 @@
         };
         eb-listener = pkgs.buildGoModule rec {
           pname = "eb-listener";
-          version = "0.1.0";
+          version = "0.2.0";
           src = pkgs.fetchFromGitHub {
             owner = "readly";
             repo = "eb-listener";
             rev = "v${version}";
             #hash = pkgs.lib.fakeHash;
-            hash = "sha256-/OjKARWuTJPS8RTcOgXFFRO6Gdo/CvOEE1UvlWCcw8g=";
+            hash = "sha256-z7l0yyWMJjkWhJQsvp64kG9etO7+pnI9RBPVDDgR/Lk=";
           };
           #vendorHash = pkgs.lib.fakeHash;
-          vendorHash = "sha256-W18cjpeJIFVWfq0lmVkaxGw0VVDxwrMG3Hxg2sTS7eE=";
+          vendorHash = "sha256-3wnf3OhD4NBlvMZEkNEFf/lLFqf0yb80aqMazu7u0i4=";
           meta = {
             description = "";
             homepage = "https://github.com/readly/eb-listener";
