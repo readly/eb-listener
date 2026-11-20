@@ -5,6 +5,13 @@ the terminal.
 
 ## Examples
 
+Show the version.
+
+`$ eb-listener --version`
+
+Release versions come from the VCS tag via GoReleaser. Local builds report `dev`
+unless a version is supplied with `-ldflags "-X main.version=..."`.
+
 To list all event buses in `us-west-1`.
 
 `$ AWS_REGION=us-west-1 eb-listener list`
