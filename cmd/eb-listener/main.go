@@ -8,6 +8,8 @@ import (
 	"github.com/readly/eb-listener/pkg/app"
 )
 
+var version = "dev"
+
 func main() {
 	logHandler := tint.NewHandler(os.Stdout, &tint.Options{
 		// Level: slog.LevelDebug,
@@ -18,6 +20,7 @@ func main() {
 	)
 	slog.SetDefault(log)
 
+	app.CLI.Version = version
 	if err := (app.CLI).Run(os.Args); err != nil {
 		slog.Error("fail", "err", err)
 	}

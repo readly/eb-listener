@@ -32,6 +32,7 @@ func init() {
 }
 
 var CLI = &cli.App{
+	Name: "eb-listener",
 	Commands: []*cli.Command{
 		{
 			Name:  "list",
