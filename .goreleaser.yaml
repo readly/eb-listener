@@ -1,4 +1,5 @@
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
+force_token: github
 
 version: 2
 
